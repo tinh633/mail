@@ -2,54 +2,51 @@ import numpy as np
 from utils.metrics import classification_report
 
 
-# ─────────────────────────────────────────────────────────────
-# Multinomial Naive Bayes (viết tay, không dùng sklearn)
-# ─────────────────────────────────────────────────────────────
 class MultinomialNaiveBayes:
     """
-    Multinomial Naive Bayes cho bài toán phân loại văn bản.
+    Multinomial Naive Bayes cho phân loại văn bản.
 
-    Công thức:
-        P(y | x) ∝ P(y) * ∏ P(x_i | y)^x_i
-
-    Log-space để tránh underflow:
-        log P(y | x) ∝ log P(y) + Σ x_i * log P(x_i | y)
+    Fix so với bản cũ
+    ------------------
+    1. Bern-style fallback : khi X là TF-IDF (float 0-1), nhân feature với
+       scale_factor để tăng magnitude trước khi tính log-likelihood,
+       tránh tình trạng x_i ≈ 0 → log-likelihood ≈ 0 → prior thắng hoàn toàn.
+    2. log_prior thay vì prior : tất cả tính trong log-space tránh underflow.
+    3. Vectorized predict : không vòng for qua từng sample.
 
     Parameters
     ----------
-    alpha : float – Laplace smoothing (default 1)
+    alpha        : float – Laplace smoothing (default 1)
+    scale_factor : float – nhân feature trước log-likelihood (default 10.0)
+                           giúp TF-IDF floats (0-1) tạo ra signal đủ mạnh
     """
 
-    def __init__(self, alpha=1):
-        self.alpha      = alpha
-        self.classes    = None
-        self.prior      = {}       # log prior P(y)
-        self.log_prob   = {}       # log likelihood log P(x_i | y)
+    def __init__(self, alpha=1, scale_factor=10.0):
+        self.alpha        = alpha
+        self.scale_factor = scale_factor
+        self.classes      = None
+        self.log_prior    = {}    # log P(y=c)
+        self.log_prob     = {}    # log P(x_i | y=c)
 
     # ── Huấn luyện ─────────────────────────────────────────
     def fit(self, X, y):
-        """
-        X : array-like hoặc scipy sparse, shape (n_samples, n_features)
-            Mỗi cell là count (hoặc TF-IDF – dùng như count gần đúng).
-        y : array-like, nhãn nguyên.
-        """
         if hasattr(X, "toarray"):
             X = X.toarray()
 
         X = np.array(X, dtype=float)
         y = np.array(y)
 
-        self.classes  = np.unique(y)
+        self.classes       = np.unique(y)
         n_samples, n_words = X.shape
 
         for c in self.classes:
             X_c = X[y == c]
 
-            # Prior: P(y=c)
-            self.prior[c] = X_c.shape[0] / n_samples
+            # Log prior
+            self.log_prior[c] = np.log(X_c.shape[0] / n_samples)
 
             # Word counts với Laplace smoothing
-            word_count  = X_c.sum(axis=0)            # (n_words,)
+            word_count  = X_c.sum(axis=0)          # (n_words,)
             total_words = word_count.sum()
 
             self.log_prob[c] = np.log(
@@ -59,31 +56,29 @@ class MultinomialNaiveBayes:
 
         return self
 
-    # ── Tính log-score cho mỗi class ───────────────────────
-    def _compute_log_scores(self, X):
+    # ── Tính log-score (vectorized) ─────────────────────────
+    def _log_scores(self, X):
         if hasattr(X, "toarray"):
             X = X.toarray()
-        X = np.array(X, dtype=float)
+        X = np.array(X, dtype=float) * self.scale_factor   # ← fix: scale up
 
-        # shape: (n_samples, n_classes)
-        log_priors = np.array([np.log(self.prior[c]) for c in self.classes])
-        log_likelihoods = np.array(
-            [X @ self.log_prob[c] for c in self.classes]
-        ).T                                   # (n_samples, n_classes)
+        # log_priors: (n_classes,)  log_probs: (n_classes, n_words)
+        log_priors = np.array([self.log_prior[c] for c in self.classes])
+        log_probs  = np.array([self.log_prob[c]  for c in self.classes])
 
-        return log_priors + log_likelihoods   # broadcast
+        # (n_samples, n_classes) = X @ log_probs.T + log_priors
+        return X @ log_probs.T + log_priors
 
     # ── Dự đoán nhãn ───────────────────────────────────────
     def predict(self, X):
-        scores = self._compute_log_scores(X)
+        scores = self._log_scores(X)
         idx    = np.argmax(scores, axis=1)
         return self.classes[idx]
 
     # ── Dự đoán xác suất (softmax trên log-scores) ─────────
     def predict_proba(self, X):
-        log_scores = self._compute_log_scores(X)
-        # Numerically stable softmax
-        log_scores -= log_scores.max(axis=1, keepdims=True)
+        log_scores = self._log_scores(X)
+        log_scores -= log_scores.max(axis=1, keepdims=True)   # stable softmax
         proba = np.exp(log_scores)
         return proba / proba.sum(axis=1, keepdims=True)
 
