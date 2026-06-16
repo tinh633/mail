@@ -15,21 +15,25 @@ from nltk.corpus import stopwords
 stop_words = set(stopwords.words('english'))
 
 def preprocess_text(text):
-    text = re.sub(r'<[^>]+>', '', text)
-    text = re.sub(r'http\S+|www\.\S+', '', text)
-    text = re.sub(r'\d+', '', text)
-    text = text.lower()
-    text = text.translate(str.maketrans('', '', string.punctuation))
-    tokens = text.split()
-    tokens = [w for w in tokens if w not in stop_words and len(w) > 1]
-    return ' '.join(tokens)
+    text = str(text).lower()                         
+
+    text = re.sub(r"<.*?>", " ", text)             
+
+    text = re.sub(r"http\S+|www\S+", " ", text)     
+
+    text = re.sub(r"[^a-zA-Z\s]", " ", text)        
+
+    words = text.split()
+
+    words = [word for word in words
+             if word not in stop_words]             
+
+    return " ".join(words)
 
 # ===== Load model =====
 @st.cache_resource
 def load_models():
     models = {
-        "🤖 Logistic Regression": joblib.load("phanloaiemail.pkl"),
-        "⚡ SVM": joblib.load("svm_model.pkl"),
         "📐 Naive Bayes": joblib.load("naive_bayes_model.pkl"),
     }
     vectorizer = joblib.load("tfidf_vectorizer.pkl")
@@ -142,10 +146,6 @@ with tab2:
                 st.error(f"💀 Spam Detected!{conf_str}")
             else:
                 st.success(f"✅ Safe (Ham){conf_str}")
-
-            if conf is None:
-                st.caption("ℹ️ Model này không hỗ trợ xác suất tin cậy.")
-
             if label == 1:
                 keywords = ["free", "click", "win", "offer", "verify", "account",
                             "login", "secure", "update", "payment"]
@@ -175,15 +175,14 @@ with tab3:
         if "Message" not in data.columns:
             st.error("❌ File phải có cột 'Message'")
         else:
-            y_pred, confidences = predict_batch(model_b, data["Message"].tolist(), selected_model_name_b)
+            y_pred, _ = predict_batch(model_b, data["Message"].tolist(), selected_model_name_b)
 
             data["Prediction"] = ["Spam" if p == 1 else "Ham" for p in y_pred]
-            data["Confidence"] = confidences if confidences is not None else "N/A"
 
             st.success("✅ Phân loại thành công!")
 
             with st.expander("📊 Xem kết quả dự đoán chi tiết"):
-                st.dataframe(data[["Message", "Prediction", "Confidence"]])
+                st.dataframe(data[["Message", "Prediction",]])
 
             y_test = data["Category"].map({'ham': 0, 'spam': 1})
             cm = confusion_matrix(y_test, y_pred)

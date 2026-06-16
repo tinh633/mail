@@ -7,20 +7,26 @@ class LinearSVM:
         learning_rate=0.01,
         lambda_param=0.0001,
         epochs=3000,
-        print_every=500
+        print_every=500,
+        class_weight=True
     ):
         self.lr = learning_rate
         self.lambda_param = lambda_param
         self.epochs = epochs
         self.print_every = print_every
+        self.class_weight = class_weight
 
         self.w = None
         self.b = None
         self.losses = []
 
     def fit(self, X, y):
+        if hasattr(X, "toarray"):
+            X = X.toarray()
+
         X = np.array(X)
         y = np.array(y)
+
         y = np.where(y == 0, -1, 1)
 
         n_samples, n_features = X.shape
@@ -29,14 +35,20 @@ class LinearSVM:
         self.b = 0
         self.losses = []
 
-        # class weight xử lý lệch lớp
-        n_pos = np.sum(y == 1)
-        n_neg = np.sum(y == -1)
+        if self.class_weight:
+            n_pos = np.sum(y == 1)
+            n_neg = np.sum(y == -1)
 
-        weight_pos = n_samples / (2 * n_pos)
-        weight_neg = n_samples / (2 * n_neg)
+            weight_pos = n_samples / (2 * n_pos)
+            weight_neg = n_samples / (2 * n_neg)
 
-        sample_weight = np.where(y == 1, weight_pos, weight_neg)
+            sample_weight = np.where(
+                y == 1,
+                weight_pos,
+                weight_neg
+            )
+        else:
+            sample_weight = np.ones(n_samples)
 
         for epoch in range(1, self.epochs + 1):
 
@@ -45,7 +57,7 @@ class LinearSVM:
 
             mask = margins < 1
 
-            if np.sum(mask) > 0:
+            if np.any(mask):
                 weighted_y = sample_weight[mask] * y[mask]
 
                 dw = (
@@ -59,26 +71,36 @@ class LinearSVM:
                 dw = self.lambda_param * self.w
                 db = 0
 
-            # learning rate decay
             lr_epoch = self.lr / (1 + 0.001 * epoch)
 
             self.w -= lr_epoch * dw
             self.b -= lr_epoch * db
 
-            loss = (
-                np.mean(sample_weight * np.maximum(0, 1 - margins))
-                + self.lambda_param * np.sum(self.w ** 2) / 2
+            hinge_loss = np.mean(
+                sample_weight * np.maximum(0, 1 - margins)
             )
 
+            regularization = (
+                self.lambda_param * np.sum(self.w ** 2) / 2
+            )
+
+            loss = hinge_loss + regularization
             self.losses.append(loss)
 
             if epoch % self.print_every == 0:
-                print(f"Epoch {epoch}/{self.epochs} - Hinge Loss: {loss:.4f}")
+                print(
+                    f"Epoch {epoch}/{self.epochs} - Hinge Loss: {loss:.4f}"
+                )
 
     def decision_function(self, X):
+        if hasattr(X, "toarray"):
+            X = X.toarray()
+
         X = np.array(X)
+
         return np.dot(X, self.w) + self.b
 
-    def predict(self, X, threshold=0):
+    def predict(self, X):
         scores = self.decision_function(X)
-        return np.where(scores >= threshold, 1, 0)
+
+        return np.where(scores >= 0, 1, 0)
