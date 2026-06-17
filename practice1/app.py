@@ -116,7 +116,7 @@ with tab1:
     with col2:
         card("SVM", "Linear SVM tự xây dựng với hinge loss", icon="⚡")
     with col3:
-        card("Naive Bayes", "Gaussian Naive Bayes tự viết", icon="📐")
+        card("Naive Bayes", "Multinomial Naive Bayes", icon="📐")
 
     with st.expander("📈 Ví dụ phân bố Spam/Ham"):
         sample = pd.DataFrame({"Type": ["Spam", "Ham"], "Count": [60, 40]})
